@@ -21,6 +21,8 @@ class PegTransfer(PsmEnv):
     def _env_setup(self):
         super(PegTransfer, self)._env_setup()
         self.has_object = True
+        
+        np.random.seed(31415)
 
         # robot
         workspace_limits = self.workspace_limits1
