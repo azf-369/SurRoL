@@ -1,5 +1,6 @@
 import time
 import socket
+import os
 
 import gym
 from gym import spaces
@@ -26,7 +27,10 @@ class SurRoLEnv(gym.Env):
     refer to: https://github.com/openai/gym/blob/master/gym/core.py
     """
 
-    metadata = {'render.modes': ['human', 'rgb_array', 'img_array']}
+    metadata = {
+        'render.modes': ['human', 'rgb_array', 'img_array'],
+        'render_modes': ['human', 'rgb_array', 'img_array'],
+    }
 
     def __init__(self, render_mode: str = None):
         # rendering and connection options
@@ -42,11 +46,15 @@ class SurRoLEnv(gym.Env):
             self.cid = p.connect(p.DIRECT)
             # See PyBullet Quickstart Guide Synthetic Camera Rendering
             # TODO: no light when using direct without egl
-            if socket.gethostname().startswith('pc') or True:
-                # TODO: not able to run on remote server
+            disable_egl = os.environ.get("SURROL_DISABLE_EGL", "0") == "1"
+            if socket.gethostname().startswith('pc') and not disable_egl:
                 egl = pkgutil.get_loader('eglRenderer')
-                if egl is not None:  # compatibility check for windows
-                    plugin = p.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
+                if egl is not None:
+                    try:
+                        p.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
+                    except Exception:
+                        # Safe fallback for headless/unsupported EGL
+                        pass
         # camera related setting
         self._view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=(0, 0, 0.2),
                                                                 distance=1.5,
