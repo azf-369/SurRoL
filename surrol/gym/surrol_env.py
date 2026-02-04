@@ -45,7 +45,8 @@ class SurRoLEnv(gym.Env):
             if socket.gethostname().startswith('pc') or True:
                 # TODO: not able to run on remote server
                 egl = pkgutil.get_loader('eglRenderer')
-                plugin = p.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
+                if egl is not None:  # compatibility check for windows
+                    plugin = p.loadPlugin(egl.get_filename(), "_eglRendererPlugin")
         # camera related setting
         self._view_matrix = p.computeViewMatrixFromYawPitchRoll(cameraTargetPosition=(0, 0, 0.2),
                                                                 distance=1.5,
@@ -65,6 +66,7 @@ class SurRoLEnv(gym.Env):
         self.obj_ids = {'fixed': [], 'rigid': [], 'deformable': []}
 
         self.seed()
+        self._duration = 0.2  # important for mini-steps
 
         # self.actions = []  # only for demo
         self._env_setup()
@@ -85,8 +87,6 @@ class SurRoLEnv(gym.Env):
             ))
         else:
             raise NotImplementedError
-
-        self._duration = 0.2  # important for mini-steps
 
     def step(self, action: np.ndarray):
         # action should have a shape of (action_size, )
