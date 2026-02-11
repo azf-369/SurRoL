@@ -25,12 +25,16 @@ class PegTransfer(PsmEnv):
         np.random.seed(31415)
 
         # robot
-        workspace_limits = self.workspace_limits1
-        pos = (workspace_limits[0][0],
-               workspace_limits[1][1],
-               workspace_limits[2][1])
-        orn = (0.5, 0.5, -0.5, -0.5)
-        joint_positions = self.psm1.inverse_kinematics((pos, orn), self.psm1.EEF_LINK_INDEX)
+        # workspace_limits = self.workspace_limits1
+        # pos = (workspace_limits[0][0],
+        #        workspace_limits[1][1],
+        #        workspace_limits[2][1])
+        # orn = (0.5, 0.5, -0.5, -0.5)
+        # joint_positions = self.psm1.inverse_kinematics((pos, orn), self.psm1.EEF_LINK_INDEX)
+        
+        # same as the User Study
+        joint_positions = [0.5642, -0.6015, 0.1352, 0.5827, 0.7831, -0.1844]
+        
         self.psm1.reset_joint(joint_positions)
         self.block_gripper = False
 
