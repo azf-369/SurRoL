@@ -33,7 +33,7 @@ class PegTransfer(PsmEnv):
         # joint_positions = self.psm1.inverse_kinematics((pos, orn), self.psm1.EEF_LINK_INDEX)
         
         # same as the User Study
-        joint_positions = [0.5642, -0.6015, 0.1352, 0.5827, 0.7831, -0.1844]
+        joint_positions = [ 0.49384867, -0.57257794, 0.14415637, -0.33054493, 0.38208918, -0.64749779]
         
         self.psm1.reset_joint(joint_positions)
         self.block_gripper = False
