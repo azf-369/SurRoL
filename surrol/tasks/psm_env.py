@@ -41,8 +41,14 @@ class PsmEnv(SurRoLGoalEnv):
     WORKSPACE_LIMITS1 = ((0.50, 0.60), (-0.05, 0.05), (0.675, 0.745))
     SCALING = 1.
 
-    def __init__(self,
-                 render_mode=None):
+    def __init__(
+        self,
+        render_mode=None,
+        camera_distance: float = None,
+        camera_yaw: float = None,
+        camera_pitch: float = None,
+        camera_target: tuple = None,
+    ):
         # workspace
         workspace_limits = np.asarray(self.WORKSPACE_LIMITS1) \
                            + np.array([0., 0., 0.0102]).reshape((3, 1))  # tip-eef offset with collision margin
@@ -64,13 +70,23 @@ class PsmEnv(SurRoLGoalEnv):
         self.distance_threshold = self.DISTANCE_THRESHOLD * self.SCALING
 
         # render related setting
+        default_target = (-0.05 * self.SCALING, 0, 0.375 * self.SCALING)
+        default_distance = 0.81 * self.SCALING
+        default_yaw = 90
+        default_pitch = -30
+
+        self._camera_target = camera_target if camera_target is not None else default_target
+        self._camera_distance = float(camera_distance) if camera_distance is not None else float(default_distance)
+        self._camera_yaw = float(camera_yaw) if camera_yaw is not None else float(default_yaw)
+        self._camera_pitch = float(camera_pitch) if camera_pitch is not None else float(default_pitch)
+
         self._view_matrix = p.computeViewMatrixFromYawPitchRoll(
-            cameraTargetPosition=(-0.05 * self.SCALING, 0, 0.375 * self.SCALING),
-            distance=0.81 * self.SCALING,
-            yaw=90,
-            pitch=-30,
+            cameraTargetPosition=self._camera_target,
+            distance=self._camera_distance,
+            yaw=self._camera_yaw,
+            pitch=self._camera_pitch,
             roll=0,
-            upAxisIndex=2
+            upAxisIndex=2,
         )
         # self._view_matrix = p.computeViewMatrixFromYawPitchRoll(
         #     cameraTargetPosition=(-0.05 * self.SCALING, 0, 0.345 * self.SCALING),
@@ -95,8 +111,12 @@ class PsmEnv(SurRoLGoalEnv):
 
         # camera
         if self._render_mode == 'human':
-            reset_camera(yaw=90.0, pitch=-30.0, dist=0.82 * self.SCALING,
-                         target=(-0.05 * self.SCALING, 0, 0.36 * self.SCALING))
+            reset_camera(
+                yaw=float(getattr(self, '_camera_yaw', 90.0)),
+                pitch=float(getattr(self, '_camera_pitch', -30.0)),
+                dist=float(getattr(self, '_camera_distance', 0.82 * self.SCALING)),
+                target=getattr(self, '_camera_target', (-0.05 * self.SCALING, 0, 0.36 * self.SCALING)),
+            )
 
         # robot
         self.psm1 = Psm1(self.POSE_PSM1[0], p.getQuaternionFromEuler(self.POSE_PSM1[1]),
