@@ -1,6 +1,7 @@
 import time
 import socket
 import os
+import threading
 
 import gym
 from gym import spaces
@@ -14,6 +15,11 @@ from surrol.utils.pybullet_utils import (
     render_image,
 )
 import numpy as np
+
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 RENDER_HEIGHT = 480  # train
 RENDER_WIDTH = 640
@@ -69,6 +75,11 @@ class SurRoLEnv(gym.Env):
         # additional settings
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.configureDebugVisualizer(lightPosition=(10.0, 0.0, 10.0))
+        # Disable side-previews to fix flickering
+        p.configureDebugVisualizer(p.COV_ENABLE_RGB_BUFFER_PREVIEW, 0)
+        p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0)
+        p.configureDebugVisualizer(p.COV_ENABLE_SEGMENTATION_MARK_PREVIEW, 0)
+        
         p.setGravity(0, 0, -9.81)
         p.loadURDF("plane.urdf", (0, 0, -0.001))
         self.obj_ids = {'fixed': [], 'rigid': [], 'deformable': []}
@@ -77,6 +88,13 @@ class SurRoLEnv(gym.Env):
         self._duration = 0.2  # important for mini-steps
 
         # self.actions = []  # only for demo
+        self._render_lock = threading.Lock()
+        self._last_render_time = 0
+        
+        # Dual-view parameters for tuning
+        self._top_down_distance = 0.18  # Zoom in (smaller value = larger objects)
+        self._top_down_target = None   # Will be set based on scaling in render()
+
         self._env_setup()
         step(0.25)
         self.goal = self._sample_goal()  # tasks are all implicitly goal-based
@@ -96,6 +114,21 @@ class SurRoLEnv(gym.Env):
         else:
             raise NotImplementedError
 
+        if self._render_mode == 'human':
+            self._stop_dual_view = threading.Event()
+            self._dual_view_thread = threading.Thread(target=self._dual_view_loop)
+            self._dual_view_thread.daemon = True
+            self._dual_view_thread.start()
+
+    def _dual_view_loop(self):
+        while not self._stop_dual_view.is_set():
+            try:
+                # Reduced frequency for performance (~10Hz)
+                self.render(mode='human')
+            except:
+                pass
+            time.sleep(0.1)
+
     def step(self, action: np.ndarray):
         # action should have a shape of (action_size, )
         if len(action.shape) > 1:
@@ -106,6 +139,8 @@ class SurRoLEnv(gym.Env):
         # time1 = time.time()
         # TODO: check the best way to step simulation
         step(self._duration)
+        if self._render_mode == 'human':
+            self.render(mode='human')
 
         # time2 = time.time()
         # print(" -> robot action time: {:.6f}, simulation time: {:.4f}".format(time1 - time0, time2 - time1))
@@ -142,6 +177,8 @@ class SurRoLEnv(gym.Env):
 
         # Re-enable rendering.
         p.configureDebugVisualizer(p.COV_ENABLE_RENDERING, 1)
+        if self._render_mode == 'human':
+            self.render(mode='human')
 
         obs = self._get_obs()
         return obs
@@ -150,18 +187,80 @@ class SurRoLEnv(gym.Env):
         if self.cid >= 0:
             p.disconnect()
             self.cid = -1
+            if cv2 is not None:
+                try:
+                    cv2.destroyAllWindows()
+                except:
+                    pass
 
     def render(self, mode='rgb_array'):
-        self._render_callback(mode)
-        if mode == "human":
-            return np.array([])
-        # TODO: check the way to render image
-        rgb_array, mask = render_image(RENDER_WIDTH, RENDER_HEIGHT,
-                                       self._view_matrix, self._proj_matrix)
-        if mode == 'rgb_array':
-            return rgb_array
-        else:
-            return rgb_array, mask
+        # Rate limit and thread-safety to avoid flickering
+        now = time.time()
+        
+        # We use a lock and a time check to ensure only one thread renders at a reasonable rate
+        if not self._render_lock.acquire(blocking=False):
+            return np.array([]) if mode == 'human' else (np.array([]), None)
+            
+        try:
+            if mode == 'human' or self._render_mode == 'human':
+                if now - self._last_render_time < 0.04: # Max ~25 FPS
+                    return np.array([]) if mode == 'human' else (np.array([]), None)
+                self._last_render_time = now
+
+            self._render_callback(mode)
+            # Main view
+            rgb_array, mask = render_image(RENDER_WIDTH, RENDER_HEIGHT,
+                                           self._view_matrix, self._proj_matrix)
+            
+            # Fixed Top-down view
+            scaling = getattr(self, 'SCALING', 1.0)
+            # Use a fixed center point for the board/workspace
+            fixed_target = (0.55 * scaling, 0, 0.68 * scaling)
+            fixed_distance = self._top_down_distance * scaling
+            
+            top_view_matrix = p.computeViewMatrixFromYawPitchRoll(
+                cameraTargetPosition=fixed_target,
+                distance=fixed_distance,
+                yaw=90,
+                pitch=-89.9,
+                roll=0,
+                upAxisIndex=2
+            )
+            # Optimization: Render top-down at half resolution for speed
+            top_rgb, _ = render_image(RENDER_WIDTH // 2, RENDER_HEIGHT // 2, top_view_matrix, self._proj_matrix)
+            # Scale up to match main view height if needed, but side-by-side concatenation is easier if we just render same size or resize
+            import cv2
+            top_rgb = cv2.resize(top_rgb, (RENDER_WIDTH, RENDER_HEIGHT), interpolation=cv2.INTER_NEAREST)
+            
+            # Combine side-by-side
+            combined_rgb = np.concatenate([rgb_array, top_rgb], axis=1)
+
+            # Show dual-view window if in human render mode
+            if (self._render_mode == 'human' or mode == 'human') and cv2 is not None:
+                win_name = "SurRoL Dual-View (Main | Top-down)"
+                try:
+                    if not hasattr(self, '_cv2_init_done'):
+                        cv2.namedWindow(win_name, cv2.WINDOW_AUTOSIZE)
+                        if hasattr(cv2, 'startWindowThread'):
+                            cv2.startWindowThread()
+                        print(f"\n[INFO] Created Dual-View Window: {win_name}")
+                        self._cv2_init_done = True
+                    
+                    # Convert RGB to BGR for OpenCV
+                    bgr_image = cv2.cvtColor(combined_rgb, cv2.COLOR_RGB2BGR)
+                    cv2.imshow(win_name, bgr_image)
+                    cv2.waitKey(1)
+                except Exception as e:
+                    pass
+
+            if mode == 'rgb_array':
+                return combined_rgb
+            elif mode == 'human':
+                return np.array([])
+            else:
+                return combined_rgb, mask
+        finally:
+            self._render_lock.release()
 
     def seed(self, seed=None):
         self._np_random, seed = seeding.np_random(seed)
