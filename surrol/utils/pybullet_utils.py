@@ -844,14 +844,16 @@ def get_camera():
     return CameraInfo(*p.getDebugVisualizerCamera())
 
 
-def render_image(width, height, view_matrix, proj_matrix, shadow=1):
+def render_image(width, height, view_matrix, proj_matrix, shadow=1, renderer=None):
+    if renderer is None:
+        renderer = p.ER_BULLET_HARDWARE_OPENGL
     (_, _, px, _, mask) = p.getCameraImage(width=width,
                                            height=height,
                                            viewMatrix=view_matrix,
                                            projectionMatrix=proj_matrix,
                                            shadow=shadow,
                                            lightDirection=(10, 0, 10),
-                                           renderer=p.ER_BULLET_HARDWARE_OPENGL)
+                                           renderer=renderer)
 
     rgb_array = np.array(px, dtype=np.uint8)
     rgb_array = np.reshape(rgb_array, (height, width, 4))
